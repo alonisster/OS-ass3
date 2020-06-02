@@ -112,6 +112,18 @@ found:
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
 
+  p->phscPageCount = 0;
+  memset(p->pagesInPhscMem, 0, sizeof(struct page) * MAX_PSYC_PAGES);
+  memset(p->pagesInSwapFile, 0, sizeof(struct page) * (MAX_TOTAL_PAGES-MAX_PSYC_PAGES));
+  if(p->pid > 2){
+    // cprintf("%s","found1\n");
+
+    createSwapFile(p);
+    // cprintf("%s","found2\n");
+
+  }
+  
+  //consider initializing all pages data.
   return p;
 }
 
@@ -213,7 +225,28 @@ fork(void)
   pid = np->pid;
 
   acquire(&ptable.lock);
-
+  if(curproc->pid > 2){
+    char buf[PGSIZE];
+    //assuming max phsc pages and max swap pages are equal 16.
+    for (int i = 0; i < MAX_PSYC_PAGES; i++){
+      if(curproc->pagesInPhscMem[i].used){
+        np->pagesInPhscMem[i].pgdir = np->pgdir;
+        np->pagesInPhscMem[i].v_addr = curproc->pagesInPhscMem[i].v_addr;
+        np->pagesInPhscMem[i].used = 1;
+        np->pagesInPhscMem[i].offsetInSwapFile = curproc->pagesInPhscMem[i].offsetInSwapFile;
+      }
+      if(curproc->pagesInSwapFile[i].used){
+        np->pagesInSwapFile[i].pgdir = np->pgdir;
+        np->pagesInSwapFile[i].used = curproc->pagesInSwapFile[i].used;
+        np->pagesInSwapFile[i].v_addr = curproc->pagesInSwapFile[i].v_addr;
+        np->pagesInSwapFile[i].offsetInSwapFile = curproc->pagesInSwapFile[i].offsetInSwapFile;
+        if(readFromSwapFile(curproc, buf, i*PGSIZE, PGSIZE) <= 0)
+          panic("fork: read swap");
+        if(writeToSwapFile(curproc,buf, i* PGSIZE, PGSIZE) <=0)
+          panic("fork: write swap");      
+      }      
+    }
+  }
   np->state = RUNNABLE;
 
   release(&ptable.lock);
@@ -248,7 +281,9 @@ exit(void)
   curproc->cwd = 0;
 
   acquire(&ptable.lock);
-
+  // cprintf("%s", "reaching exit\n");
+  if(curproc->pid > 2)
+    removeSwapFile(curproc);
   // Parent might be sleeping in wait().
   wakeup1(curproc->parent);
 
@@ -295,6 +330,8 @@ wait(void)
         p->name[0] = 0;
         p->killed = 0;
         p->state = UNUSED;
+        memset(p->pagesInPhscMem, 0, sizeof(p->pagesInPhscMem));
+        memset(p->pagesInSwapFile, 0, sizeof(p->pagesInSwapFile));
         release(&ptable.lock);
         return pid;
       }
