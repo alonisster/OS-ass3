@@ -78,6 +78,13 @@ trap(struct trapframe *tf)
     lapiceoi();
     break;
 
+  case T_PGFLT:
+    cprintf("%s","enters case pageflt\n");
+    if (isPageFault(rcr2())) {
+      handlePageFault(PTE_ADDR(rcr2()));
+      break;
+    }
+    
   //PAGEBREAK: 13
   default:
     if(myproc() == 0 || (tf->cs&3) == 0){

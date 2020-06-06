@@ -6,6 +6,7 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+static char buf[PGSIZE];
 
 struct {
   struct spinlock lock;
@@ -113,17 +114,11 @@ found:
   p->context->eip = (uint)forkret;
 
   p->phscPageCount = 0;
-  memset(p->pagesInPhscMem, 0, sizeof(struct page) * MAX_PSYC_PAGES);
   memset(p->pagesInSwapFile, 0, sizeof(struct page) * (MAX_TOTAL_PAGES-MAX_PSYC_PAGES));
+  memset(p->pagesInPhscMem, 0, sizeof(struct page) * MAX_PSYC_PAGES);
   if(p->pid > 2){
-    // cprintf("%s","found1\n");
-
     createSwapFile(p);
-    // cprintf("%s","found2\n");
-
   }
-  
-  //consider initializing all pages data.
   return p;
 }
 
@@ -214,19 +209,7 @@ fork(void)
 
   // Clear %eax so that fork returns 0 in the child.
   np->tf->eax = 0;
-
-  for(i = 0; i < NOFILE; i++)
-    if(curproc->ofile[i])
-      np->ofile[i] = filedup(curproc->ofile[i]);
-  np->cwd = idup(curproc->cwd);
-
-  safestrcpy(np->name, curproc->name, sizeof(curproc->name));
-
-  pid = np->pid;
-
-  acquire(&ptable.lock);
   if(curproc->pid > 2){
-    char buf[PGSIZE];
     //assuming max phsc pages and max swap pages are equal 16.
     for (int i = 0; i < MAX_PSYC_PAGES; i++){
       if(curproc->pagesInPhscMem[i].used){
@@ -240,13 +223,24 @@ fork(void)
         np->pagesInSwapFile[i].used = curproc->pagesInSwapFile[i].used;
         np->pagesInSwapFile[i].v_addr = curproc->pagesInSwapFile[i].v_addr;
         np->pagesInSwapFile[i].offsetInSwapFile = curproc->pagesInSwapFile[i].offsetInSwapFile;
-        if(readFromSwapFile(curproc, buf, i*PGSIZE, PGSIZE) <= 0)
+        if(readFromSwapFile(curproc, buf, np->pagesInSwapFile[i].offsetInSwapFile, PGSIZE) <= 0)
           panic("fork: read swap");
-        if(writeToSwapFile(curproc,buf, i* PGSIZE, PGSIZE) <=0)
+        if(writeToSwapFile(np ,buf, np->pagesInSwapFile[i].offsetInSwapFile, PGSIZE) <=0)
           panic("fork: write swap");      
       }      
     }
   }
+
+  for(i = 0; i < NOFILE; i++)
+    if(curproc->ofile[i])
+      np->ofile[i] = filedup(curproc->ofile[i]);
+  np->cwd = idup(curproc->cwd);
+
+  safestrcpy(np->name, curproc->name, sizeof(curproc->name));
+
+  pid = np->pid;
+
+  acquire(&ptable.lock);
   np->state = RUNNABLE;
 
   release(&ptable.lock);
@@ -274,6 +268,12 @@ exit(void)
       curproc->ofile[fd] = 0;
     }
   }
+  if(curproc->pid > 2){
+    removeSwapFile(curproc);
+    memset(curproc->pagesInPhscMem, 0, sizeof(p->pagesInPhscMem));
+    memset(curproc->pagesInSwapFile, 0, sizeof(p->pagesInSwapFile));      
+  }
+  
 
   begin_op();
   iput(curproc->cwd);
@@ -281,9 +281,6 @@ exit(void)
   curproc->cwd = 0;
 
   acquire(&ptable.lock);
-  // cprintf("%s", "reaching exit\n");
-  if(curproc->pid > 2)
-    removeSwapFile(curproc);
   // Parent might be sleeping in wait().
   wakeup1(curproc->parent);
 
@@ -330,8 +327,6 @@ wait(void)
         p->name[0] = 0;
         p->killed = 0;
         p->state = UNUSED;
-        memset(p->pagesInPhscMem, 0, sizeof(p->pagesInPhscMem));
-        memset(p->pagesInSwapFile, 0, sizeof(p->pagesInSwapFile));
         release(&ptable.lock);
         return pid;
       }
@@ -568,4 +563,14 @@ procdump(void)
     }
     cprintf("\n");
   }
+}
+
+int getNumberOfFreePages(){
+  int freePagesCounter =0;
+  struct proc* curproc = myproc();
+  for (int i = 0; i < MAX_PSYC_PAGES; i++){
+    if(curproc->pagesInPhscMem[i].used)
+      freePagesCounter++;
+  }
+  return freePagesCounter;
 }

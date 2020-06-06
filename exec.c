@@ -94,6 +94,14 @@ exec(char *path, char **argv)
   safestrcpy(curproc->name, last, sizeof(curproc->name));
 
   // Commit to the user image.
+  //assuming swap page max=16
+  for (int i = 0; i < MAX_PSYC_PAGES; i++){
+    if(curproc->pagesInPhscMem[i].used)
+      curproc->pagesInPhscMem[i].pgdir = pgdir;
+    if(curproc->pagesInSwapFile[i].used)
+      curproc->pagesInSwapFile[i].pgdir = pgdir;
+  }
+  
   oldpgdir = curproc->pgdir;
   curproc->pgdir = pgdir;
   curproc->sz = sz;
