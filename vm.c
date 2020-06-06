@@ -245,7 +245,7 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
       return 0;
     }
     
-    if (curproc->pid > 3){
+    if (curproc->pid > 2){
       if(curproc->phscPageCount < MAX_PSYC_PAGES){
         int freeIdxPhs = getPageIdxToStore();
         struct page * myPage = &(curproc->pagesInPhscMem[freeIdxPhs]);
@@ -255,7 +255,9 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
         myPage->pgdir = pgdir;
         curproc->phscPageCount++;
       }else{
+        cprintf("entring swap page %d\n", curproc->pid);
         swapPage(a);
+        cprintf("entring swap page %d end\n", curproc->pid);
       }
     }
   }
@@ -424,23 +426,25 @@ int swapPage(uint address){
   //checks if dirty bit is on. if on- writes to swap file.
   // else- checks in page struct if the page is already in swap file by checking indicator and writes to file accordingly.
   struct proc* curproc = myproc();
-  int idxPhs = getPageIdxToStore();    //getting idx of page in ram to store in swapfile.
+  // int idxPhs = getPageIdxToStore();    //getting idx of page in ram to store in swapfile.
   int freeIdxInSwap = getFreeIdxSwap();
-  pte_t va = curproc->pagesInSwapFile[idxPhs].v_addr;
-  if(writeToSwapFile(curproc, (char*)va, freeIdxInSwap * PGSIZE ,PGSIZE) == -1){
+  pte_t *pte = walkpgdir(curproc->pgdir,(void*) address,0);
+  uint pa = PTE_ADDR(*pte);
+  if(! (*pte & PTE_P))
+    panic("swapPage: page is not exist.");
+  char* va_kernel = P2V(pa);
+  // pte_t va = curproc->pagesInSwapFile[idxPhs].v_addr;
+  if(writeToSwapFile(curproc, va_kernel, freeIdxInSwap * PGSIZE ,PGSIZE) == -1){
     panic("problem storing page to file.");
   }
 
   curproc->pagesInSwapFile[freeIdxInSwap].offsetInSwapFile = freeIdxInSwap * PGSIZE;
   curproc->pagesInSwapFile[freeIdxInSwap].pgdir = curproc->pgdir;
-  curproc->pagesInSwapFile[freeIdxInSwap].v_addr = curproc->pagesInPhscMem[idxPhs].v_addr;
+  curproc->pagesInSwapFile[freeIdxInSwap].v_addr = address; //curproc->pagesInPhscMem[idxPhs].v_addr;
   curproc->pagesInSwapFile[freeIdxInSwap].used = 1;    
 
   //getting pa and free memory
-  pte_t *pte = walkpgdir(curproc->pgdir, (void*) curproc->pagesInPhscMem[idxPhs].v_addr,0);
-  uint pa = PTE_ADDR(*pte);
-  if(! (*pte & PTE_P))
-    panic("swapPage: page is not exist.");
+  
 
   kfree(P2V(pa));
   //why not just kfree(curproc->pagesInPhscMem[idxPhs].va)?
@@ -451,7 +455,7 @@ int swapPage(uint address){
   //refresh cr3 bit
   lcr3(V2P(curproc->pgdir));
 
-  curproc->pagesInPhscMem[idxPhs].v_addr = address;
+  // curproc->pagesInPhscMem[idxPhs].v_addr = address;
   return 0;
 }
 
