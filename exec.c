@@ -19,6 +19,26 @@ exec(char *path, char **argv)
   pde_t *pgdir, *oldpgdir;
   struct proc *curproc = myproc();
 
+  uint pages_count_backup = 0;
+  struct page phsc_pages_backup[MAX_PSYC_PAGES];
+  struct page swap_pages_backup[MAX_TOTAL_PAGES - MAX_PSYC_PAGES];
+ 
+  if(curproc->pid > 2) {
+    memmove((void*)phsc_pages_backup, curproc->pagesInPhscMem, sizeof(struct page) * MAX_PSYC_PAGES);
+    memset((void*)curproc->pagesInPhscMem, 0, sizeof(struct page) * MAX_PSYC_PAGES);
+
+    memmove((void*)swap_pages_backup, curproc->pagesInSwapFile, sizeof(struct page) * (MAX_TOTAL_PAGES-MAX_PSYC_PAGES));
+    memset((void*)curproc->pagesInSwapFile, 0, sizeof(struct page) * (MAX_TOTAL_PAGES-MAX_PSYC_PAGES));
+
+    pages_count_backup = curproc->phscPageCount;
+    curproc->phscPageCount = 0;
+ 
+    for(int i = 0; i < MAX_PSYC_PAGES; i++){
+      curproc->pagesInPhscMem[i].used = phsc_pages_backup[i].used;
+      curproc->pagesInSwapFile[i].used = swap_pages_backup[i].used;
+    }
+  }
+
   begin_op();
 
   if((ip = namei(path)) == 0){
@@ -117,6 +137,12 @@ exec(char *path, char **argv)
   if(ip){
     iunlockput(ip);
     end_op();
+  }
+
+  if(curproc->pid > 2) {
+    curproc->phscPageCount = pages_count_backup;
+    memmove((void*)curproc->pagesInPhscMem, phsc_pages_backup, sizeof(struct page) * (MAX_TOTAL_PAGES-MAX_PSYC_PAGES));
+    memmove((void*)curproc->pagesInSwapFile, swap_pages_backup, sizeof(struct page) * (MAX_TOTAL_PAGES-MAX_PSYC_PAGES));
   }
   return -1;
 }
