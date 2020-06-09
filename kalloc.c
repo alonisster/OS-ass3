@@ -21,8 +21,40 @@ struct {
   struct spinlock lock;
   int use_lock;
   struct run *freelist;
+  uint cow_refs[PHYSTOP/PGSIZE];
+  struct spinlock cowLock;
+  int use_cow_lock;
 } kmem;
 
+uint
+get_cow_page_idx(uint va)
+{
+  uint pa = V2P(va);
+  return pa/PGSIZE;  
+}
+
+void init_cow_refs(uint va){
+  kmem.cow_refs[get_cow_page_idx(va)] =1 ;
+}
+
+//returns counter after the operation
+int
+increment_cow_refs(uint va){
+  uint idx=get_cow_page_idx(va);
+  int refs = kmem.cow_refs[idx]++;
+  return refs;
+}
+
+int
+decrement_cow_refs(uint va){
+  uint idx=get_cow_page_idx(va);
+  kmem.cow_refs[idx]--;
+  return kmem.cow_refs[idx];
+}
+
+int getCowRefs(uint va){
+  return kmem.cow_refs[get_cow_page_idx(va)];
+}
 // Initialization happens in two phases.
 // 1. main() calls kinit1() while still using entrypgdir to place just
 // the pages mapped by entrypgdir on free list.
@@ -32,7 +64,9 @@ void
 kinit1(void *vstart, void *vend)
 {
   initlock(&kmem.lock, "kmem");
+  initlock(&kmem.cowLock, "kmemCowLock");
   kmem.use_lock = 0;
+  kmem.use_cow_lock = 0;
   freerange(vstart, vend);
 }
 
@@ -41,6 +75,7 @@ kinit2(void *vstart, void *vend)
 {
   freerange(vstart, vend);
   kmem.use_lock = 1;
+  kmem.use_cow_lock = 1;
 }
 
 void
@@ -48,9 +83,22 @@ freerange(void *vstart, void *vend)
 {
   char *p;
   p = (char*)PGROUNDUP((uint)vstart);
-  for(; p + PGSIZE <= (char*)vend; p += PGSIZE)
+  for(; p + PGSIZE <= (char*)vend; p += PGSIZE){
+    kmem.cow_refs[get_cow_page_idx((uint)p)] = 0;
     kfree(p);
+  }
 }
+void
+acquireCowLock(){
+  if(kmem.use_cow_lock)
+    acquire(&kmem.cowLock);
+} 
+
+void 
+releaseCowLock(){
+  if(kmem.use_cow_lock)
+    release(&kmem.cowLock);
+} 
 //PAGEBREAK: 21
 // Free the page of physical memory pointed at by v,
 // which normally should have been returned by a
@@ -63,17 +111,19 @@ kfree(char *v)
 
   if((uint)v % PGSIZE || v < end || V2P(v) >= PHYSTOP)
     panic("kfree");
+  acquireCowLock();
+  if(decrement_cow_refs((uint)v) <= 0){
+    memset(v, 1, PGSIZE);
 
-  // Fill with junk to catch dangling refs.
-  memset(v, 1, PGSIZE);
-
-  if(kmem.use_lock)
-    acquire(&kmem.lock);
-  r = (struct run*)v;
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  if(kmem.use_lock)
-    release(&kmem.lock);
+    if(kmem.use_lock)
+      acquire(&kmem.lock);
+    r = (struct run*)v;
+    r->next = kmem.freelist;
+    kmem.freelist = r;
+    if(kmem.use_lock)
+      release(&kmem.lock);
+  }
+  releaseCowLock();  
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -87,8 +137,12 @@ kalloc(void)
   if(kmem.use_lock)
     acquire(&kmem.lock);
   r = kmem.freelist;
-  if(r)
+  if(r){
     kmem.freelist = r->next;
+    acquireCowLock();
+    init_cow_refs((uint)r);
+    releaseCowLock();
+  }
   if(kmem.use_lock)
     release(&kmem.lock);
   return (char*)r;

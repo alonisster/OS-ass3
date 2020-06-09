@@ -197,7 +197,12 @@ fork(void)
   }
 
   // Copy process state from proc.
-  if((np->pgdir = copyuvm(curproc->pgdir, curproc->sz)) == 0){
+  if(curproc->pid >2){
+    np->pgdir = copyuvmCow(curproc->pgdir, curproc->sz);
+  }else{
+    np->pgdir = copyuvm(curproc->pgdir, curproc->sz);
+  }
+  if(np->pgdir == 0){
     kfree(np->kstack);
     np->kstack = 0;
     np->state = UNUSED;
@@ -326,6 +331,9 @@ wait(void)
         p->parent = 0;
         p->name[0] = 0;
         p->killed = 0;
+        memset((void*)p->pagesInPhscMem, 0, sizeof(p->pagesInPhscMem));
+        memset((void*)p->pagesInSwapFile, 0, sizeof(p->pagesInSwapFile));
+        p->phscPageCount =0;
         p->state = UNUSED;
         release(&ptable.lock);
         return pid;

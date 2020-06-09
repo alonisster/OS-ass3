@@ -79,9 +79,14 @@ trap(struct trapframe *tf)
     break;
 
   case T_PGFLT:
-    cprintf("%s","enters case pageflt\n");
     if (isPageFault(rcr2())) {
+      // cprintf("%s","enters case pageflt NORMAL\n");
       handlePageFault(PTE_ADDR(rcr2()));
+      break;
+    }
+    if(isCowFault(rcr2())){
+      // cprintf("%s","enters case pageflt COW\n");
+      handleCowPageFault(PTE_ADDR(rcr2()));
       break;
     }
     

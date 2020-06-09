@@ -78,6 +78,11 @@ char*           kalloc(void);
 void            kfree(char*);
 void            kinit1(void*, void*);
 void            kinit2(void*, void*);
+int             increment_cow_refs(uint va);
+int             decrement_cow_refs(uint va);
+int             getCowRefs(uint va);
+void            acquireCowLock(void);
+void            releaseCowLock(void);
 
 // kbd.c
 void            kbdintr(void);
@@ -192,15 +197,19 @@ void            freevm(pde_t*);
 void            inituvm(pde_t*, char*, uint);
 int             loaduvm(pde_t*, char*, struct inode*, uint, uint);
 pde_t*          copyuvm(pde_t*, uint);
+pde_t*          copyuvmCow(pde_t*, uint);
 void            switchuvm(struct proc*);
 void            switchkvm(void);
 int             copyout(pde_t*, uint, void*, uint);
 void            clearpteu(pde_t *pgdir, char *uva);
 int             swapPage(uint address);
 int             isPageFault(uint);
+int             isCowFault(uint);
 int             getPageIdxToStore(void); 
-int             handlePageFault(uint address);
+void            handlePageFault(uint address);
+void            handleCowPageFault(uint va);
 int             getFreeIdxSwap(void);
+
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
