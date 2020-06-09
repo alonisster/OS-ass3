@@ -41,6 +41,7 @@ struct page{
   int used;
   uint v_addr;
   pde_t* pgdir;
+  uint priority;
 };
 
 // Per-process state
@@ -64,6 +65,7 @@ struct proc {
   struct page pagesInPhscMem[MAX_PSYC_PAGES];
   struct page pagesInSwapFile[MAX_PSYC_PAGES];
   int phscPageCount;                //max 16
+  int accessQueue[MAX_PSYC_PAGES];
 
 };
 

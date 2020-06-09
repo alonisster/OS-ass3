@@ -9,6 +9,13 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct page;
+
+#define NFUA        0
+#define LAPA        1
+#define SCFIFO      2
+#define AQ          3
+#define NONE        4
 
 // bio.c
 void            binit(void);
@@ -205,10 +212,11 @@ void            clearpteu(pde_t *pgdir, char *uva);
 int             swapPage(uint address);
 int             isPageFault(uint);
 int             isCowFault(uint);
-int             getPageIdxToStore(void); 
+int             getPhsPageIdxToRemove(); 
 void            handlePageFault(uint address);
 void            handleCowPageFault(uint va);
-int             getFreeIdxSwap(void);
+int             getFreeIdxSwap(uint basePageAdr);
+uint             check_if_accessed_and_clean(struct page pageToCheck);
 
 
 // number of elements in fixed-size array

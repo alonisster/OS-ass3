@@ -6,12 +6,16 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
-static char buf[PGSIZE];
+
+#define MSB_INT 0x80000000;
+#if SELECTION!=NONE
+  static char buf[PGSIZE];
+#endif
 
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
-} ptable; 
+} ptable;
 
 static struct proc *initproc;
 
@@ -20,7 +24,7 @@ extern void forkret(void);
 extern void trapret(void);
 
 static void wakeup1(void *chan);
-
+void updatePriorityPolicy(struct proc* p);
 void
 pinit(void)
 {
@@ -114,11 +118,13 @@ found:
   p->context->eip = (uint)forkret;
 
   p->phscPageCount = 0;
-  memset(p->pagesInSwapFile, 0, sizeof(struct page) * (MAX_TOTAL_PAGES-MAX_PSYC_PAGES));
   memset(p->pagesInPhscMem, 0, sizeof(struct page) * MAX_PSYC_PAGES);
+#if SELECTION!=NONE
+  memset(p->pagesInSwapFile, 0, sizeof(struct page) * (MAX_TOTAL_PAGES-MAX_PSYC_PAGES));
   if(p->pid > 2){
     createSwapFile(p);
   }
+#endif
   return p;
 }
 
@@ -222,7 +228,11 @@ fork(void)
         np->pagesInPhscMem[i].v_addr = curproc->pagesInPhscMem[i].v_addr;
         np->pagesInPhscMem[i].used = 1;
         np->pagesInPhscMem[i].offsetInSwapFile = curproc->pagesInPhscMem[i].offsetInSwapFile;
-      }
+        np->pagesInPhscMem[i].priority=curproc->pagesInPhscMem[i].priority;
+      } 
+    }
+  #if SELECTION!=NONE
+    for (int i = 0; i < MAX_TOTAL_PAGES - MAX_PSYC_PAGES; i++){
       if(curproc->pagesInSwapFile[i].used){
         np->pagesInSwapFile[i].pgdir = np->pgdir;
         np->pagesInSwapFile[i].used = curproc->pagesInSwapFile[i].used;
@@ -232,8 +242,10 @@ fork(void)
           panic("fork: read swap");
         if(writeToSwapFile(np ,buf, np->pagesInSwapFile[i].offsetInSwapFile, PGSIZE) <=0)
           panic("fork: write swap");      
-      }      
+      }  
     }
+    memmove((void*)np->accessQueue,(void*)curproc->accessQueue,sizeof(int)*MAX_PSYC_PAGES);//xxxx
+  #endif
   }
 
   for(i = 0; i < NOFILE; i++)
@@ -246,6 +258,7 @@ fork(void)
   pid = np->pid;
 
   acquire(&ptable.lock);
+
   np->state = RUNNABLE;
 
   release(&ptable.lock);
@@ -274,9 +287,11 @@ exit(void)
     }
   }
   if(curproc->pid > 2){
+  #if SELECTION!=NONE
     removeSwapFile(curproc);
-    memset(curproc->pagesInPhscMem, 0, sizeof(p->pagesInPhscMem));
-    memset(curproc->pagesInSwapFile, 0, sizeof(p->pagesInSwapFile));      
+    memset(curproc->pagesInSwapFile, 0, sizeof(p->pagesInSwapFile));
+  #endif
+    memset(curproc->pagesInPhscMem, 0, sizeof(p->pagesInPhscMem));      
   }
   
 
@@ -286,6 +301,7 @@ exit(void)
   curproc->cwd = 0;
 
   acquire(&ptable.lock);
+
   // Parent might be sleeping in wait().
   wakeup1(curproc->parent);
 
@@ -331,9 +347,9 @@ wait(void)
         p->parent = 0;
         p->name[0] = 0;
         p->killed = 0;
-        memset((void*)p->pagesInPhscMem, 0, sizeof(p->pagesInPhscMem));
-        memset((void*)p->pagesInSwapFile, 0, sizeof(p->pagesInSwapFile));
         p->phscPageCount =0;
+        memset((void*)p->pagesInPhscMem, 0, sizeof(p->pagesInPhscMem));
+        memset((void*)p->pagesInSwapFile, 0, sizeof(p->pagesInSwapFile));        
         p->state = UNUSED;
         release(&ptable.lock);
         return pid;
@@ -365,7 +381,6 @@ scheduler(void)
   struct proc *p;
   struct cpu *c = mycpu();
   c->proc = 0;
-  
   for(;;){
     // Enable interrupts on this processor.
     sti();
@@ -389,6 +404,12 @@ scheduler(void)
       // Process is done running for now.
       // It should have changed its p->state before coming back.
       c->proc = 0;
+      // cprintf("reaching update policy\n");
+    #if SELECTION!=NONE 
+      if(p->pid>2){ 
+        updatePriorityPolicy(p);
+      }
+    #endif
     }
     release(&ptable.lock);
 
@@ -581,4 +602,59 @@ int getNumberOfFreePages(){
       freePagesCounter++;
   }
   return freePagesCounter;
+}
+
+
+void
+updatePriorityPolicy(struct proc* curproc){
+  // cprintf("selection %d\n", SELECTION);
+
+#if SELECTION == NFUA
+  // cprintf("updatePriorityPolicy: in nfua\n");
+  struct page* curPage;
+  for (int i = 0; i < MAX_PSYC_PAGES; i++){
+    curPage = & curproc->pagesInPhscMem[i];
+    if(curPage->used && check_if_accessed_and_clean(*curPage)){
+      curPage->priority = curPage->priority >> 1 | MSB_INT;
+    }else{
+      curPage->priority = curPage->priority >> 1;
+    }
+  }
+  
+#endif
+
+#if SELECTION == LAPA
+  struct page* curPage;
+  for (int i = 0; i < MAX_PSYC_PAGES; i++){
+    curPage = & curproc->pagesInPhscMem[i];
+    if(curPage->used && check_if_accessed_and_clean(*curPage)){
+      curPage->priority = curPage->priority >> 1 | MSB_INT;
+    }else{
+      curPage->priority = curPage->priority >> 1;
+    }
+  }
+#endif
+
+#if SELECTION == SCFIFO
+  // cprintf("SELECTION SCFIFO\n");
+#endif
+
+#if SELECTION == AQ
+  struct page* curPage;
+  int temp;
+  int switchPossible = 0;
+  for (int i = 0; i < MAX_PSYC_PAGES; i++){
+    curPage = & curproc->pagesInPhscMem[i];
+    if(curPage->used && check_if_accessed_and_clean(*curPage)){
+      if(switchPossible){
+        temp=curproc->accessQueue[i-1];
+        curproc->accessQueue[i-1]=curproc->accessQueue[i];
+        curproc->accessQueue[i]=temp;
+      }
+    }else{
+      switchPossible=1;
+    }
+  }
+  
+#endif
 }

@@ -7,6 +7,12 @@
 #include "proc.h"
 #include "elf.h"
 
+void removeFromQueue(int idxToRemove);
+int init_priority_by_policy(int freeIdx);
+int getUnusedFreeIdxSwap();
+int int_bit_count(int num);
+void arrange_queue();
+int getFreeIdxToStore();
 extern char data[];  // defined by kernel.ld
 pde_t *kpgdir;  // for use in scheduler()
 static char pageBuffer[PGSIZE];
@@ -38,7 +44,6 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
 {
   pde_t *pde;
   pte_t *pgtab;
-
   pde = &pgdir[PDX(va)];
   if(*pde & PTE_P){
     pgtab = (pte_t*)P2V(PTE_ADDR(*pde));
@@ -248,17 +253,23 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
     
     if (curproc->pid > 2){
       if(curproc->phscPageCount < MAX_PSYC_PAGES){
-        int freeIdxPhs = getPageIdxToStore();
+        int freeIdxPhs = getFreeIdxToStore();
         struct page * myPage = &(curproc->pagesInPhscMem[freeIdxPhs]);
         myPage->offsetInSwapFile = 0;
         myPage->used = 1;
         myPage->v_addr = a;
         myPage->pgdir = pgdir;
+      #if SELECTION!=NONE
+        myPage->priority=init_priority_by_policy(freeIdxPhs);
+      #endif
         curproc->phscPageCount++;
+        
       }else{
+      #if SELECTION!=NONE
         cprintf("entring swap page %d\n", curproc->pid);
         swapPage(a);
         cprintf("entring swap page %d end\n", curproc->pid);
+      #endif
       }
     }
   }
@@ -294,6 +305,10 @@ deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
           curPage->offsetInSwapFile = 0;
           curPage->pgdir = 0;
           curPage->v_addr = 0;
+          curPage->priority=0;
+        #if SELECTION!=NONE
+          removeFromQueue(i);
+        #endif
         }
       }
       pa = PTE_ADDR(*pte);
@@ -354,10 +369,17 @@ copyuvm(pde_t *pgdir, uint sz)
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walkpgdir(pgdir, (void *) i, 0)) == 0)
       panic("copyuvm: pte should exist");
+  #if SELECTION==NONE
+    if(!(*pte & PTE_P))
+      panic("copyuvm: page not present");
+  #endif
+  #if SELECTION!=NONE
     if(!(*pte & PTE_P) && !(*pte & PTE_PG))
       panic("copyuvm: page not present");
+  #endif
     pa = PTE_ADDR(*pte);
     flags = PTE_FLAGS(*pte);
+  #if SELECTION!=NONE
     if(*pte & PTE_PG){
       cprintf("copyuvm: maps pte.\n");
       if(mappages(d, (void*)i, PGSIZE,0, flags)<0){
@@ -365,7 +387,7 @@ copyuvm(pde_t *pgdir, uint sz)
       }
       continue;
     }
-
+  #endif
     if((mem = kalloc()) == 0)
       goto bad;
     memmove(mem, (char*)P2V(pa), PGSIZE);
@@ -462,8 +484,7 @@ int swapPage(uint address){
   //checks if dirty bit is on. if on- writes to swap file.
   // else- checks in page struct if the page is already in swap file by checking indicator and writes to file accordingly.
   struct proc* curproc = myproc();
-  // int idxPhs = getPageIdxToStore();    //getting idx of page in ram to store in swapfile.
-  int freeIdxInSwap = getFreeIdxSwap();
+  int freeIdxInSwap = getUnusedFreeIdxSwap();
   pte_t *pte = walkpgdir(curproc->pgdir,(void*) address,0);
   uint pa = PTE_ADDR(*pte);
   if(! (*pte & PTE_P))
@@ -495,10 +516,66 @@ int swapPage(uint address){
   return 0;
 }
 
+void 
+removeFromQueue(int idxToRemove){
+  int found=0;
+  struct proc * curproc = myproc();
+  for(int i=0;i<MAX_PSYC_PAGES;i++){
+    if(found==1){
+      curproc->accessQueue[i-1]= curproc->accessQueue[i];
+    }
+    if(idxToRemove == curproc->accessQueue[i]){
+      found=1;
+    }
+  }
+}
+int
+init_priority_by_policy(int freeIdx){
+  #if SELECTION==SCFIFO || SELECTION==AQ
+    struct proc * curproc = myproc();
+  #endif
+
+  #if SELECTION==NFUA
+    return 0;
+  #endif
+
+  #if SELECTION==LAPA
+    return 0xFFFFFFFF;
+  #endif
+
+  #if SELECTION==SCFIFO
+    int found=0;
+    for(int i=0;i<MAX_PSYC_PAGES;i++){
+      if(found==1){
+        curproc->accessQueue[i-1]= curproc->accessQueue[i];
+      }
+      if(freeIdx == curproc->accessQueue[i]){
+        found=1;
+      }
+      if(curproc->accessQueue[i]==-1){
+        curproc->accessQueue[i]=freeIdx;
+        return 0;
+      }
+    }
+    curproc->accessQueue[MAX_PSYC_PAGES-1]= freeIdx;
+    return 0;
+  #endif
+
+  #if SELECTION==AQ
+    for(int i=MAX_PSYC_PAGES-1;i>0;i--){
+      curproc->accessQueue[i]=curproc->accessQueue[i-1];
+    }
+    curproc->accessQueue[0]=freeIdx;
+    return 0;
+  #endif
+
+  panic("init_priority_by_policy: prob");
+  return 0;  
+}
 //gets the adr which resulted page fault.
 void 
 handlePageFault(pte_t va){
-  // cprintf("%s", "enters handle page fault");
+  cprintf("%s", "enters handle page fault\n");
   struct proc * curproc = myproc();
   pte_t basePageAdr = PGROUNDDOWN(va);
   char * newPage = kalloc();
@@ -533,25 +610,26 @@ handlePageFault(pte_t va){
 
   //there is space left for page in ram.
   if(curproc->phscPageCount < MAX_PSYC_PAGES){
-    int freeIdx = getPageIdxToStore();
-    // int freeIdx = curproc->phscPageCount;
+    cprintf("handlePGFault: alloc\n");
+    int freeIdx = getFreeIdxToStore();
     curproc->pagesInPhscMem[freeIdx].v_addr = basePageAdr;
     curproc->pagesInPhscMem[freeIdx].offsetInSwapFile = 0;
     curproc->pagesInPhscMem[freeIdx].used = 1; 
     curproc->pagesInPhscMem[freeIdx].pgdir = curproc->pgdir;
+    curproc->pagesInPhscMem[freeIdx].priority = init_priority_by_policy(freeIdx);
     curproc->phscPageCount++;
   }else{
     //need to store page from ram to swapfile and then write to ram.
-    int idxToStorePhs = getPageIdxToStore();
-    int idxToStoreInSwap = getFreeIdxSwap();
+    int idxToStorePhs = getPhsPageIdxToRemove();
+    int idxToStoreInSwap = getFreeIdxSwap(basePageAdr);
     struct page * pageToReplace = & curproc->pagesInPhscMem[idxToStorePhs];
     struct page * pageToStoreInSwap = & curproc->pagesInSwapFile[idxToStoreInSwap];
     pageToStoreInSwap->v_addr = pageToReplace->v_addr;
     pageToStoreInSwap->pgdir = curproc->pgdir;
     pageToStoreInSwap->used = 1;
     pageToStoreInSwap->offsetInSwapFile = PGSIZE * idxToStoreInSwap;
-
-    writeToSwapFile(curproc, (char*)pageToReplace->v_addr, PGSIZE * idxToStoreInSwap, PGSIZE);
+    pageToStoreInSwap->priority=0;
+    writeToSwapFile(curproc, (char*)pageToReplace->v_addr, PGSIZE * idxToStoreInSwap, PGSIZE);///XXXXXX (char*)pageToReplace->v_addr need to bew kernal
 
     pte_t * pte_swapped = walkpgdir(curproc->pgdir, (void*)pageToReplace->v_addr,0);
     if(! (*pte_swapped & PTE_P)){
@@ -563,6 +641,7 @@ handlePageFault(pte_t va){
     *pte_swapped &= ~PTE_P;
     //now stores the new page in the arr.
     curproc->pagesInPhscMem[idxToStorePhs].v_addr = basePageAdr;
+    curproc->pagesInPhscMem[idxToStorePhs].priority = init_priority_by_policy(idxToStorePhs);
   }
   lcr3(V2P(curproc->pgdir));
 }
@@ -597,24 +676,118 @@ handleCowPageFault(uint va){
   lcr3(V2P(curproc->pgdir));
 }
 
-int getPageIdxToStore(){
-  // cprintf("getPageIdxToStore: looks for place in ram\n");
+uint check_if_accessed_and_clean(struct page pageToCheck){
+  pte_t * pte = walkpgdir(pageToCheck.pgdir, (void*)pageToCheck.v_addr, 0);
+  uint accessed = *pte & PTE_A;
+  *pte &= ~PTE_A;
+  return accessed;
+}
+
+int 
+int_bit_count(int num){
+  int counter=0;
+  while(num > 0){
+    counter += num & 1;
+    num = num >> 1;
+  }
+  return counter;
+}
+
+
+void
+arrange_queue(){
+  struct proc* curproc = myproc();
+  int first=curproc->accessQueue[0];
+  for(int i=1;i<MAX_PSYC_PAGES;i++){
+    curproc->accessQueue[i-1]=curproc->accessQueue[i];
+  }
+  curproc->accessQueue[MAX_PSYC_PAGES-1]=first;
+}
+int
+getFreeIdxToStore(){
   struct proc* curproc = myproc();
   for (int i = 0; i < MAX_PSYC_PAGES ; i++){
     if(!curproc->pagesInPhscMem[i].used){
       return i;
     }
   }
-  
-  return MAX_PSYC_PAGES-1;
+  panic("pagesInPhscMem is not full but didnt find idx");
+  return -1;
 }
 
-int getFreeIdxSwap(){
+int getPhsPageIdxToRemove(){
+  #if SELECTION!=NONE
+    struct proc* curproc = myproc();
+  #endif
+  int ret_idx=0;
+  
+  
+  #if SELECTION==NFUA
+    int idx_val=__UINT32_MAX__;
+    int temp=0;
+    for(int i=0;i<MAX_PSYC_PAGES;i++){
+      temp=curproc->pagesInPhscMem[i].priority ;
+      if(temp < idx_val){
+        ret_idx=i;
+        idx_val=temp;
+      }
+    }
+  #endif
+
+  #if SELECTION==LAPA
+    int idx_val=__UINT32_MAX__;
+    int temp=0;
+    int num_access=0;
+    for(int i=0;i<MAX_PSYC_PAGES;i++){
+      temp=curproc->pagesInPhscMem[i].priority; 
+      if(int_bit_count(temp) < num_access || (int_bit_count(temp) == num_access && temp < idx_val)){
+        num_access = int_bit_count(temp);
+        ret_idx = i;
+        idx_val=temp;
+      }
+    }    
+  #endif
+
+  #if SELECTION==SCFIFO
+    ret_idx=0;
+    int temp_idx=0;
+    for(int i=0;i<MAX_PSYC_PAGES;i++){
+      temp_idx=curproc->accessQueue[0];
+      if(!check_if_accessed_and_clean(curproc->pagesInPhscMem[temp_idx])){
+        ret_idx=temp_idx;
+        break;
+      }else{
+        arrange_queue();
+      }
+    }
+    //if all of the pages was accessed it will return 0.
+  #endif
+
+  #if SELECTION==AQ
+    ret_idx=curproc->accessQueue[MAX_PSYC_PAGES-1];
+  #endif
+  
+  return ret_idx;
+}
+
+int getFreeIdxSwap(uint basePageAdr){
   struct proc* curproc = myproc();
+  struct page cur_page;
   for (int i = 0; i < MAX_TOTAL_PAGES-MAX_PSYC_PAGES; i++)  {
-    if(!curproc->pagesInSwapFile[i].used){
+    cur_page= curproc->pagesInSwapFile[i];
+    if(cur_page.v_addr == basePageAdr && cur_page.pgdir == curproc->pgdir){
       return i;
     }
+  }
+  panic("swap file is full!!");
+  return -1;
+}
+
+int getUnusedFreeIdxSwap(){
+  struct proc* curproc = myproc();
+  for (int i = 0; i < MAX_TOTAL_PAGES-MAX_PSYC_PAGES; i++)  {
+    if(curproc->pagesInSwapFile[i].used==0)
+      return i;
   }
   panic("swap file is full!!");
   return -1;
@@ -623,7 +796,7 @@ int getFreeIdxSwap(){
 int isPageFault(uint va){
  return (*(walkpgdir(myproc()->pgdir,(void*) va, 0)) & PTE_PG);
  }
- 
+
 int isCowFault(uint va){
  return (*(walkpgdir(myproc()->pgdir,(void*) va, 0)) & PTE_COW);
  }
@@ -636,7 +809,7 @@ int isCowFault(uint va){
 
 int storePageToSwapFile(char * buffer){
   //assuming buffer size is pagesz(4096)
-  int freeIdxSwap = getFreeIdxSwap();
+  int freeIdxSwap = getUnusedFreeIdxSwap();
   struct proc* curproc = myproc();
   if(writeToSwapFile(curproc, buffer, freeIdxSwap * PGSIZE ,PGSIZE) == -1){
     panic("problem storing page to file.");
