@@ -599,11 +599,6 @@ procdump(void)
   }
 }
 
-int getNumberOfFreePages(){
-  int freePagesCounter =0;
-  struct proc* curproc = myproc();
-  return (MAX_PSYC_PAGES - curproc->phscPageCount);
-}
 
 
 void

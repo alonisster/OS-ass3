@@ -93,6 +93,7 @@ int             decrement_cow_refs(uint va);
 int             getCowRefs(uint va);
 void            acquireCowLock(void);
 void            releaseCowLock(void);
+int             getNumberOfFreePages(void);
 
 // kbd.c
 void            kbdintr(void);
@@ -145,7 +146,6 @@ void            userinit(void);
 int             wait(void);
 void            wakeup(void*);
 void            yield(void);
-int             getNumberOfFreePages(void);
 int             getSwapPagesCounter(struct proc * p);
 
 // swtch.S

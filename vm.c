@@ -267,7 +267,8 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
       }else{
       #if SELECTION!=NONE
         // cprintf("entring swap page %d\n", curproc->pid);
-        swapPage(a);
+        if(swapPage(a)<0)
+          return 0;
         // cprintf("entring swap page %d end\n", curproc->pid);
       #endif
       }
@@ -497,6 +498,8 @@ int swapPage(uint address){
   // else- checks in page struct if the page is already in swap file by checking indicator and writes to file accordingly.
   struct proc* curproc = myproc();
   int freeIdxInSwap = getUnusedFreeIdxSwap();
+  if(freeIdxInSwap<0)
+    return freeIdxInSwap;
   pte_t *pte = walkpgdir(curproc->pgdir,(void*) address,0);
   uint pa = PTE_ADDR(*pte);
   if(! (*pte & PTE_P))
@@ -800,7 +803,6 @@ int getUnusedFreeIdxSwap(){
     if(curproc->pagesInSwapFile[i].used==0)
       return i;
   }
-  panic("swap file is full!!");
   return -1;
 }
 
@@ -817,16 +819,3 @@ int isCowFault(uint va){
 // Blank page.
 //PAGEBREAK!
 // Blank page.
-
-int storePageToSwapFile(char * buffer){
-  //assuming buffer size is pagesz(4096)
-  int freeIdxSwap = getUnusedFreeIdxSwap();
-  struct proc* curproc = myproc();
-  if(writeToSwapFile(curproc, buffer, freeIdxSwap * PGSIZE ,PGSIZE) == -1){
-    panic("problem storing page to file.");
-    return -1;
-  }
-  //refresh cr3 bit
-  lcr3(V2P (curproc->pgdir));
-  return 0;
-}
