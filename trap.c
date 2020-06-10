@@ -36,6 +36,7 @@ idtinit(void)
 void
 trap(struct trapframe *tf)
 {
+  struct proc * curproc = myproc();
   if(tf->trapno == T_SYSCALL){
     if(myproc()->killed)
       exit();
@@ -81,6 +82,7 @@ trap(struct trapframe *tf)
   case T_PGFLT:
   #if SELECTION!=NONE   //xxxxxxxxxxxxx
     if (isPageFault(rcr2())) {
+      curproc->pageFaultCounter++;
       // cprintf("%s","enters case pageflt NORMAL\n");
       handlePageFault(PTE_ADDR(rcr2()));
       break;

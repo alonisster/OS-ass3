@@ -306,9 +306,21 @@ deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
           curPage->pgdir = 0;
           curPage->v_addr = 0;
           curPage->priority=0;
+          curproc->phscPageCount--;
         #if SELECTION!=NONE
           removeFromQueue(i);
         #endif
+        }
+      }
+      for (i = 0; i < MAX_TOTAL_PAGES - MAX_PSYC_PAGES; i++)
+      {
+        struct page* curPage = & curproc->pagesInSwapFile[i];
+        if(curPage->v_addr == a && curPage->pgdir == pgdir){
+          curPage->used = 0;
+          curPage->offsetInSwapFile = 0;
+          curPage->pgdir = 0;
+          curPage->v_addr = 0;
+          curPage->priority=0;
         }
       }
       pa = PTE_ADDR(*pte);
@@ -494,7 +506,7 @@ int swapPage(uint address){
   if(writeToSwapFile(curproc, va_kernel, freeIdxInSwap * PGSIZE ,PGSIZE) == -1){
     panic("problem storing page to file.");
   }
-
+  curproc->pagedOutCounter++;
   curproc->pagesInSwapFile[freeIdxInSwap].offsetInSwapFile = freeIdxInSwap * PGSIZE;
   curproc->pagesInSwapFile[freeIdxInSwap].pgdir = curproc->pgdir;
   curproc->pagesInSwapFile[freeIdxInSwap].v_addr = address; //curproc->pagesInPhscMem[idxPhs].v_addr;
@@ -628,8 +640,8 @@ handlePageFault(pte_t va){
     pageToStoreInSwap->used = 1;
     pageToStoreInSwap->offsetInSwapFile = PGSIZE * idxToStoreInSwap;
     pageToStoreInSwap->priority=0;
-    writeToSwapFile(curproc, (char*)pageToReplace->v_addr, PGSIZE * idxToStoreInSwap, PGSIZE);///XXXXXX (char*)pageToReplace->v_addr need to bew kernal
-
+    writeToSwapFile(curproc, (char*)pageToReplace->v_addr, PGSIZE * idxToStoreInSwap, PGSIZE);
+    curproc->pagedOutCounter++;
     pte_t * pte_swapped = walkpgdir(curproc->pgdir, (void*)pageToReplace->v_addr,0);
     if(! (*pte_swapped & PTE_P)){
       panic("page not exists.\n");

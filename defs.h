@@ -17,6 +17,9 @@ struct page;
 #define AQ          3
 #define NONE        4
 
+#define FALSE       0
+#define TRUE        1
+
 // bio.c
 void            binit(void);
 struct buf*     bread(uint, uint);
@@ -143,6 +146,7 @@ int             wait(void);
 void            wakeup(void*);
 void            yield(void);
 int             getNumberOfFreePages(void);
+int             getSwapPagesCounter(struct proc * p);
 
 // swtch.S
 void            swtch(struct context**, struct context*);

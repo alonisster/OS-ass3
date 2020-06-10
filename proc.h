@@ -66,7 +66,9 @@ struct proc {
   struct page pagesInSwapFile[MAX_PSYC_PAGES];
   int phscPageCount;                //max 16
   int accessQueue[MAX_PSYC_PAGES];
-
+  int pageFaultCounter;
+  int pagedOutCounter;
+  int totalPageOutCounter;
 };
 
 // Process memory is laid out contiguously, low addresses first:

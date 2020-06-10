@@ -584,7 +584,12 @@ procdump(void)
       state = states[p->state];
     else
       state = "???";
-    cprintf("%d %s %s", p->pid, state, p->name);
+    #if VERBOSE_PRINT==FALSE
+      cprintf("%d %s %s", p->pid, state, p->name);
+    #endif
+    #if VERBOSE_PRINT==TRUE
+      cprintf("%d %s %d %d %d %d %s", p->pid, state, p->phscPageCount, getSwapPagesCounter(p) , p->pageFaultCounter,  p->pagedOutCounter,    p->name);
+    #endif
     if(p->state == SLEEPING){
       getcallerpcs((uint*)p->context->ebp+2, pc);
       for(i=0; i<10 && pc[i] != 0; i++)
@@ -597,11 +602,7 @@ procdump(void)
 int getNumberOfFreePages(){
   int freePagesCounter =0;
   struct proc* curproc = myproc();
-  for (int i = 0; i < MAX_PSYC_PAGES; i++){
-    if(curproc->pagesInPhscMem[i].used)
-      freePagesCounter++;
-  }
-  return freePagesCounter;
+  return (MAX_PSYC_PAGES - curproc->phscPageCount);
 }
 
 
@@ -657,4 +658,14 @@ updatePriorityPolicy(struct proc* curproc){
   }
   
 #endif
+}
+
+int getSwapPagesCounter(struct proc * p){
+  int swapPagesCounter = 0;
+  for (int i = 0; i < MAX_TOTAL_PAGES - MAX_PSYC_PAGES; i++){
+    if(p->pagesInSwapFile[i].used){
+      swapPagesCounter++;
+    }
+  }
+  return swapPagesCounter;  
 }
