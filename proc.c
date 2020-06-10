@@ -221,7 +221,7 @@ fork(void)
   // Clear %eax so that fork returns 0 in the child.
   np->tf->eax = 0;
   if(curproc->pid > 2){
-    //assuming max phsc pages and max swap pages are equal 16.
+    np->phscPageCount = curproc->phscPageCount;
     for (int i = 0; i < MAX_PSYC_PAGES; i++){
       if(curproc->pagesInPhscMem[i].used){
         np->pagesInPhscMem[i].pgdir = np->pgdir;
@@ -244,7 +244,7 @@ fork(void)
           panic("fork: write swap");      
       }  
     }
-    memmove((void*)np->accessQueue,(void*)curproc->accessQueue,sizeof(int)*MAX_PSYC_PAGES);//xxxx
+    memmove((void*)np->accessQueue,(void*)curproc->accessQueue,sizeof(int)*MAX_PSYC_PAGES);
   #endif
   }
 

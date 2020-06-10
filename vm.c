@@ -266,9 +266,9 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
         
       }else{
       #if SELECTION!=NONE
-        cprintf("entring swap page %d\n", curproc->pid);
+        // cprintf("entring swap page %d\n", curproc->pid);
         swapPage(a);
-        cprintf("entring swap page %d end\n", curproc->pid);
+        // cprintf("entring swap page %d end\n", curproc->pid);
       #endif
       }
     }
@@ -480,7 +480,7 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
 }
 
 int swapPage(uint address){
-  cprintf("in swap page\n");
+  // cprintf("in swap page\n");
   //checks if dirty bit is on. if on- writes to swap file.
   // else- checks in page struct if the page is already in swap file by checking indicator and writes to file accordingly.
   struct proc* curproc = myproc();
@@ -575,7 +575,6 @@ init_priority_by_policy(int freeIdx){
 //gets the adr which resulted page fault.
 void 
 handlePageFault(pte_t va){
-  cprintf("%s", "enters handle page fault\n");
   struct proc * curproc = myproc();
   pte_t basePageAdr = PGROUNDDOWN(va);
   char * newPage = kalloc();
