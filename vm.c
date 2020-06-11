@@ -431,10 +431,13 @@ copyuvmCow(pde_t *pgdir, uint sz)
     if(!(*pte & PTE_P) && !(*pte & PTE_PG))
       panic("copyuvm: page not present");
     pa = PTE_ADDR(*pte);
+    if((*pte & PTE_W) ==0){
+      *pte |= PTE_COW_RO;
+    }
     *pte |= PTE_COW;
     *pte &= ~PTE_W;
     flags = PTE_FLAGS(*pte);
-   
+
     if(mappages(d, (void*)i, PGSIZE,pa, flags)<0)
       goto bad;
     
@@ -811,7 +814,12 @@ int isPageFault(uint va){
  }
 
 int isCowFault(uint va){
- return (*(walkpgdir(myproc()->pgdir,(void*) va, 0)) & PTE_COW);
+  pte_t * pte = walkpgdir(myproc()->pgdir,(void*) va, 0);
+  if(*pte & PTE_COW_RO){
+    //lead to trap.
+    return 0;
+  }
+  return (*pte & PTE_COW);
  }
 //PAGEBREAK!
 // Blank page.

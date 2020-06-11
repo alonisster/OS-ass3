@@ -6,58 +6,83 @@
 #define PGSIZE 4096
 #define MAX_TOTAL_MEM 4096*32
 
+int error = 0;
+
 void
 allocuvmTest(){
-  printf(1,"starting allocuvmTest\n");
+  printf(1,"STARTING allocuvmTest\n");
   int startSize = (int)sbrk(0);
-  int size;
-  printf(1,"allocuvmTest: procces start size is %d\n",startSize);
-  size=(int)sbrk(MAX_TOTAL_MEM - startSize);
+  int size=0;
+  sbrk(4*PGSIZE);
   size=(int)sbrk(0);
-  printf(1,"allocuvmTest: procces mem size is %d\n",size);
-  if((int)sbrk(PGSIZE) != -1)
-    printf(1,"allocuvmTest: prob in allocuvm\n");
-  size=(int)sbrk(-1*(MAX_TOTAL_MEM - startSize));
-  printf(1, "allocuvmTest passed.\n");
+  if(startSize + 4*PGSIZE==size){
+     printf(1,"allocuvmTest: process allocating mem succeed\n");
+  }
+  else{
+     printf(1,"FAILED: allocuvmTest:  process allocating mem faild\n");
+     error = 1;
+  }
+  sbrk(-4*PGSIZE);
+  if( (int)sbrk(0) ==startSize){
+    printf(1, "SUCCESS: allocuvmTest passed.\n");
+  }else{
+    printf(1, "FAILED: allocuvmTest failed allocating and deallocating. start size %d end size %d\n", startSize, (int)sbrk(0));
+    error = 1;
+  }
+  
 }
- void
+
+void
 deallocuvmTest(){
-  printf(1,"starting deallocuvmTest\n");
+  printf(1,"STARTING deallocuvmTest\n");
   int startSize = (int)sbrk(0);
-  int size;
-  printf(1,"deallocuvmTest: procces start size is %d\n",startSize);
-  size=(int)sbrk(MAX_TOTAL_MEM - startSize);
-  printf(1,"deallocuvmTest: procces mem is %d\n",size);
-  size=(int)sbrk(-1*PGSIZE);
-  printf(1,"deallocuvmTest: procces mem is %d\n",size);
-  size=(int)sbrk(-1*((MAX_TOTAL_MEM-PGSIZE) - startSize));
-  printf(1, "deallocuvmTest passed.\n");
+  sbrk(PGSIZE);
+  if(startSize + PGSIZE != (int)sbrk(0)){
+    printf(1,"FAILED: deallocuvmTest: couldnt allocate page \n");
+    error = 1;
+  }
+
+  sbrk(-1*PGSIZE);
+  if(startSize != (int)sbrk(0)){
+    printf(1,"FAILED: deallocuvmTest: couldnt deallocate page \n");
+    error = 1;
+  }
+  else{
+    printf(1, "SUCCESS: deallocuvmTest passed.\n");
+  }
 }
 
 void
 pageFaultTest(){
-  printf(1,"starting pageFaultTest\n");
-  int size;
+  printf(1,"STARTING pageFaultTest\n");
   int startSize = (int)sbrk(0);
-  size=(int)sbrk(MAX_TOTAL_MEM - startSize);
-  if(size == -1)
-    printf(1,"pageFaultTest: prob in allocuvm\n");
+  int size=0;
+  size=(int)sbrk(MAX_TOTAL_MEM - startSize -PGSIZE);
+  size=(int)sbrk(0);
+  if(MAX_TOTAL_MEM-PGSIZE==size){
+     printf(1,"pageFaultTest: process allocating mem succeed\n");
+  }
+  else{
+     printf(1,"FAILED: pageFaultTest:  process allocating mem faild\n");
+     error = 1;
+  }
   printf(1,"pageFaultTest writing to all pages\n");
-  for (int i = PGSIZE*4; i < MAX_TOTAL_MEM; i = i + PGSIZE)
+  for (int i = PGSIZE*4; i < MAX_TOTAL_MEM -PGSIZE; i = i + PGSIZE)
   {
     (*(char*)i)= 12;
   }
   size=(int)sbrk(-1*(MAX_TOTAL_MEM - startSize));
-  printf(1, "allocuvmTest passed.\n");
+  printf(1, "SUCCESS: pageFaultTest passed.\n");
 }
 
 void
 forkTest(){
-  printf(1, "forkTest: after fork \n");
+  printf(1, "STARTING forkTest\n");
   char buf[PGSIZE*4];
+  // printf(1,"forkTest: Start: free pages is: %d\n", getNumberOfFreePages());
   int pid = fork();
   if(pid < 0 ){
-    printf(1, "forkTest: error couldnt fork \n");
+    printf(1, "forkTest FAIL: error couldnt fork \n");
   } 
   else {
     if(pid == 0){ 
@@ -83,39 +108,26 @@ forkTest(){
   }
   printf(1, "forkTest passed.\n");
 }
-void
-Test_2(){
-   int num;
-   int pid = fork();
-   if(pid < 0 ){
-      printf(1, "Fork: error \n");
-      exit();
-   } 
-   // child
-   if(pid == 0){ 
-     num = 1;
-     printf(1, "Child [suppose to be 1]: num is %d\n", num);
-     exit();
-   } 
-   // parent
-   else{
-     num = 0;
-     sleep(10);
-     printf(1, "Parent [suppose to be 0]: num is %d\n", num);
-     wait();
-   }
-}
+
 void
 partOneTest(){
-  // allocuvmTest();
-  // deallocuvmTest();
-  // pageFaultTest();
-} 
+  allocuvmTest();
+  deallocuvmTest();
+  pageFaultTest();
+  if(error){
+    printf(1, "FAILED tests part one.\n");
+  }else{
+    printf(1, "PASSED tests part one.\n");
+  }
+  error = 0;
+}
+
 void
 partTwoTest(){
   forkTest();
-  // Test_2();
 } 
+
+
 int main(int argc, char *argv[])
 {
   printf(1, "ass3Tests start.\n");

@@ -99,6 +99,7 @@ struct segdesc {
 #define PTE_PG          0x200   //indicates whether was page fault.
 #define PTE_D           0x040   //dirty bit
 #define PTE_COW         0x800
+#define PTE_COW_RO      0x400   //read only cow.
 
 // Address in page table or page directory entry
 #define PTE_ADDR(pte)   ((uint)(pte) & ~0xFFF)
