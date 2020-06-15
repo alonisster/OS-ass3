@@ -5,12 +5,18 @@
  
 #define PGSIZE 4096
 #define MAX_TOTAL_MEM 4096*32
+#define NFUA        0
+#define LAPA        1
+#define SCFIFO      2
+#define AQ          3
+#define NONE        4
+
 
 int error = 0;
 
 void
 allocuvmTest(){
-  printf(1,"STARTING allocuvmTest\n");
+  printf(1,"-----------STARTING allocuvmTest-----------\n");
   int startSize = (int)sbrk(0);
   int size=0;
   sbrk(4*PGSIZE);
@@ -24,7 +30,7 @@ allocuvmTest(){
   }
   sbrk(-4*PGSIZE);
   if( (int)sbrk(0) ==startSize){
-    printf(1, "SUCCESS: allocuvmTest passed.\n");
+    printf(1, "-----------SUCCESS: allocuvmTest passed.-----------\n");
   }else{
     printf(1, "FAILED: allocuvmTest failed allocating and deallocating. start size %d end size %d\n", startSize, (int)sbrk(0));
     error = 1;
@@ -34,12 +40,14 @@ allocuvmTest(){
 
 void
 deallocuvmTest(){
-  printf(1,"STARTING deallocuvmTest\n");
+  printf(1,"-----------STARTING deallocuvmTest-----------\n");
   int startSize = (int)sbrk(0);
   sbrk(PGSIZE);
   if(startSize + PGSIZE != (int)sbrk(0)){
     printf(1,"FAILED: deallocuvmTest: couldnt allocate page \n");
     error = 1;
+  }else{
+    printf(1,"deallocuvmTest: allocated new page successfully\n");
   }
 
   sbrk(-1*PGSIZE);
@@ -48,65 +56,73 @@ deallocuvmTest(){
     error = 1;
   }
   else{
-    printf(1, "SUCCESS: deallocuvmTest passed.\n");
+    printf(1, "-----------SUCCESS: deallocuvmTest passed.-----------\n");
   }
 }
 
 void
 pageFaultTest(){
-  printf(1,"STARTING pageFaultTest\n");
+  printf(1,"-----------STARTING pageFaultTest-----------\n");
   int startSize = (int)sbrk(0);
   int size=0;
   size=(int)sbrk(MAX_TOTAL_MEM - startSize -PGSIZE);
   size=(int)sbrk(0);
   if(MAX_TOTAL_MEM-PGSIZE==size){
-     printf(1,"pageFaultTest: process allocating mem succeed\n");
+     printf(1,"SUCCESS: process allocating mem succeed\n");
   }
   else{
      printf(1,"FAILED: pageFaultTest:  process allocating mem faild\n");
      error = 1;
   }
-  printf(1,"pageFaultTest writing to all pages\n");
-  for (int i = PGSIZE*4; i < MAX_TOTAL_MEM -PGSIZE; i = i + PGSIZE)
+  printf(1,"pageFaultTest: writing to all pages\n");
+  for (int i = PGSIZE*4; i < MAX_TOTAL_MEM - 10 * PGSIZE; i = i + PGSIZE)
   {
     (*(char*)i)= 12;
   }
-  size=(int)sbrk(-1*(MAX_TOTAL_MEM - startSize));
-  printf(1, "SUCCESS: pageFaultTest passed.\n");
+  printf(1,"pageFaultTest: succeed writing to all pages\n");
+  size=(int)sbrk(-1*(MAX_TOTAL_MEM - startSize -PGSIZE));
+  printf(1, "-----------SUCCESS: pageFaultTest passed-----------\n");
 }
 
 void
 forkTest(){
-  printf(1, "STARTING forkTest\n");
-  char buf[PGSIZE*4];
-  // printf(1,"forkTest: Start: free pages is: %d\n", getNumberOfFreePages());
+  int freePgs;
+  printf(1, "-----------STARTING forkTest-----------\n");
+  sbrk(4*PGSIZE);
   int pid = fork();
   if(pid < 0 ){
-    printf(1, "forkTest FAIL: error couldnt fork \n");
+    printf(1, "FAILED: forktest: error couldnt fork \n");
   } 
   else {
     if(pid == 0){ 
-      printf(1,"forkTest: child free pages is: %d\n", getNumberOfFreePages());
-      sleep(100);
-      buf[3]=2;
-      buf[PGSIZE*4-1]=7;
-      pid=buf[PGSIZE*4-1];
-      printf(1,"forkTest: child free pages after changing buf is: %d\n", getNumberOfFreePages());
+      freePgs = getNumberOfFreePages();
+      (*(char*)(PGSIZE*6))=7;
+      if(freePgs-1 != getNumberOfFreePages()){
+        printf(1, "FAILED: forktest: incorrect num of pages. \n");
+      }else{
+        printf(1, "SUCCESS: number of free pages decreased after writing to shared page. \n");
+      }
       exit();
     } 
     else{
-      printf(1,"forkTest: parent free pages is: %d\n", getNumberOfFreePages());
-      sleep(20);
-      char buf2[PGSIZE*4];
-      buf2[2]=7;
-      buf2[PGSIZE*4-1]=7;
-      buf[3]=buf2[PGSIZE*4-1];
-      printf(1,"forkTest: parent free pages after buf2 is: %d\n", getNumberOfFreePages());
+      sleep(50);
+      freePgs = getNumberOfFreePages();      
+      (*(char*)(PGSIZE*6))=8;
+      if(freePgs != getNumberOfFreePages()){
+        printf(1, "FAILED: forktest: incorrect num of pages- shouldn't allocate new page because its already duplicated. \n");
+      }else{
+        printf(1, "SUCCESS: number of free pages stays the same. Didnt allocate new page because its already duplicated. \n");
+      }
+      (*(char*)(PGSIZE*7))=8;
+      if(freePgs-1 != getNumberOfFreePages()){
+        printf(1, "FAILED: forktest: incorrect num of pages- shoulded allocate new page because it didnt duplicated yet. \n");
+      }else{
+        printf(1, "SUCCESS: number of free pages decreased after writing to shared page(other than the first that has been written by child). \n");
+      }
       wait();
-
     }
   }
-  printf(1, "forkTest passed.\n");
+  printf(1, "-----------forkTest passed.-----------\n");
 }
 
 void
@@ -115,9 +131,9 @@ partOneTest(){
   deallocuvmTest();
   pageFaultTest();
   if(error){
-    printf(1, "FAILED tests part one.\n");
+    printf(1, "----------------------------FAILED tests part one----------------------------\n");
   }else{
-    printf(1, "PASSED tests part one.\n");
+    printf(1, "----------------------------PASSED tests part one----------------------------\n");
   }
   error = 0;
 }
@@ -131,7 +147,23 @@ partTwoTest(){
 int main(int argc, char *argv[])
 {
   printf(1, "ass3Tests start.\n");
- 
+
+  #if SELECTION==NFUA
+    printf(1,"------------POLICY: NFUA---------------\n");
+  #endif
+  #if SELECTION==LAPA
+    printf(1,"------------POLICY: LAPA---------------\n");
+  #endif
+  #if SELECTION==SCFIFO
+    printf(1,"------------POLICY: SCFIFO---------------\n");
+  #endif
+  #if SELECTION==AQ
+    printf(1,"------------POLICY: AQ---------------\n");
+  #endif
+  #if SELECTION==NONE
+    printf(1,"------------POLICY: NONE---------------\n");
+  #endif
+
   partOneTest();
   partTwoTest();
   printf(1, "ass3Tests passed.\n");
